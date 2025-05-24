@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """
 Railway Twitter Quote Bot
-Simplified version for Railway cron job deployment
+Sequential version - posts rows in order without duplicates
 """
 
 import os
 import json
-import random
 import logging
 from datetime import datetime
 import tweepy
@@ -58,8 +57,8 @@ class RailwayQuoteBot:
             # Parse JSON and create credentials
             service_account_info = json.loads(service_account_json)
             scopes = [
-                'https://www.googleapis.com/auth/spreadsheets.readonly',
-                'https://www.googleapis.com/auth/drive.readonly'
+                'https://www.googleapis.com/auth/spreadsheets',
+                'https://www.googleapis.com/auth/drive'
             ]
             
             credentials = Credentials.from_service_account_info(
@@ -83,40 +82,77 @@ class RailwayQuoteBot:
             logger.error(f"Google Sheets API connection failed: {str(e)}")
             raise
     
-    def get_quotes_from_sheet(self):
-        """Fetch all quotes from Google Sheets"""
+    def get_current_row_index(self):
+        """Get the current row index from tracking sheet or column"""
         try:
-            all_records = self.worksheet.get_all_records()
+            # Try to get tracking sheet first
+            try:
+                tracking_sheet = self.sheet.worksheet('tracking')
+                current_row = tracking_sheet.cell(1, 1).value
+                return int(current_row) if current_row else 2  # Start from row 2 (after headers)
+            except:
+                # If tracking sheet doesn't exist, create it
+                logger.info("Creating tracking sheet...")
+                tracking_sheet = self.sheet.add_worksheet(title='tracking', rows=1, cols=1)
+                tracking_sheet.update('A1', '2')  # Start from row 2
+                return 2
+                
+        except Exception as e:
+            logger.error(f"Error getting current row index: {str(e)}")
+            return 2  # Default to row 2
+    
+    def update_current_row_index(self, new_row):
+        """Update the current row index in tracking sheet"""
+        try:
+            tracking_sheet = self.sheet.worksheet('tracking')
+            tracking_sheet.update('A1', str(new_row))
+            logger.info(f"Updated current row to: {new_row}")
+        except Exception as e:
+            logger.error(f"Error updating current row index: {str(e)}")
+    
+    def get_next_quote(self):
+        """Get the next quote in sequence"""
+        try:
+            # Get current row index
+            current_row = self.get_current_row_index()
             
-            quotes = []
-            for row in all_records:
-                quote_text = None
-                author = None
+            # Get all data to check total rows
+            all_data = self.worksheet.get_all_values()
+            total_rows = len(all_data)
+            
+            # If we've gone past the last row, reset to row 2 (after headers)
+            if current_row > total_rows:
+                current_row = 2
+                logger.info("Reached end of sheet, resetting to beginning")
+            
+            # Get the specific row data
+            if current_row <= total_rows:
+                row_data = all_data[current_row - 1]  # Convert to 0-based index
                 
-                # Look for quote text in common column names
-                for key in ['Quote', 'Text', 'Content', 'Message', 'quote', 'text']:
-                    if key in row and row[key]:
-                        quote_text = str(row[key]).strip()
-                        break
-                
-                # Look for author in common column names
-                for key in ['Author', 'By', 'Source', 'author', 'by']:
-                    if key in row and row[key]:
-                        author = str(row[key]).strip()
-                        break
+                # Parse the row data (assuming first column is quote, second is author)
+                quote_text = row_data[0].strip() if len(row_data) > 0 and row_data[0] else None
+                author = row_data[1].strip() if len(row_data) > 1 and row_data[1] else None
                 
                 if quote_text:
-                    quotes.append({
+                    # Update to next row for next execution
+                    next_row = current_row + 1
+                    if next_row > total_rows:
+                        next_row = 2  # Reset to beginning
+                    
+                    self.update_current_row_index(next_row)
+                    
+                    return {
                         'text': quote_text,
-                        'author': author
-                    })
+                        'author': author,
+                        'row': current_row
+                    }
             
-            logger.info(f"Successfully fetched {len(quotes)} quotes from Google Sheets")
-            return quotes
+            logger.error(f"No valid quote found at row {current_row}")
+            return None
             
         except Exception as e:
-            logger.error(f"Error fetching quotes: {str(e)}")
-            return []
+            logger.error(f"Error getting next quote: {str(e)}")
+            return None
     
     def format_tweet(self, quote_data):
         """Format quote into tweet (without hashtags as per your original code)"""
@@ -142,23 +178,21 @@ class RailwayQuoteBot:
         return tweet
     
     def post_quote(self):
-        """Main function to select and post a quote"""
+        """Main function to select and post the next quote in sequence"""
         try:
-            logger.info("Starting quote posting process...")
+            logger.info("Starting sequential quote posting process...")
             
-            # Get quotes from Google Sheets
-            quotes = self.get_quotes_from_sheet()
+            # Get next quote in sequence
+            quote_data = self.get_next_quote()
             
-            if not quotes:
-                logger.error("No quotes found in Google Sheets!")
+            if not quote_data:
+                logger.error("No quote found to post!")
                 return False
             
-            # Select random quote
-            selected_quote = random.choice(quotes)
-            logger.info(f"Selected quote: {selected_quote['text'][:50]}...")
+            logger.info(f"Selected quote from row {quote_data['row']}: {quote_data['text'][:50]}...")
             
             # Format tweet
-            tweet_text = self.format_tweet(selected_quote)
+            tweet_text = self.format_tweet(quote_data)
             
             # Post to Twitter
             response = self.twitter_client.create_tweet(text=tweet_text)
@@ -180,7 +214,7 @@ class RailwayQuoteBot:
 def main():
     """Main function for Railway execution"""
     try:
-        logger.info("=== Railway Quote Bot Starting ===")
+        logger.info("=== Railway Quote Bot Starting (Sequential Mode) ===")
         logger.info(f"Execution time: {datetime.now()}")
         
         # Initialize and run bot
