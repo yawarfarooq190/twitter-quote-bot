@@ -9,6 +9,7 @@ on:
     - cron: '30 3 * * *'     # 8:30 AM
     - cron: '30 10 * * *'    # 3:30 PM
     - cron: '30 18 * * *'    # 11:30 PM
+    - cron: '42 11 * * *'
   
   # Allow manual triggering
   workflow_dispatch:
