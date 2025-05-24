@@ -124,7 +124,7 @@ class RailwayQuoteBot:
         author = quote_data.get('author')
         
         # Start with quoted text
-        tweet = f'"{quote_text}"'
+        tweet = f'{quote_text}'
         
         # Add author if available
         if author:
@@ -135,7 +135,7 @@ class RailwayQuoteBot:
             max_quote_length = 280 - len(' - ') - len(author or '') - 2
             if max_quote_length > 50:
                 quote_text = quote_text[:max_quote_length-3] + '...'
-                tweet = f'"{quote_text}"'
+                tweet = f'{quote_text}'
                 if author:
                     tweet += f' - {author}'
         
