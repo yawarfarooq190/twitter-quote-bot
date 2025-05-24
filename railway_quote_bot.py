@@ -105,7 +105,7 @@ class RailwayQuoteBot:
         """Update the current row index in tracking sheet"""
         try:
             tracking_sheet = self.sheet.worksheet('tracking')
-            tracking_sheet.update('A1', str(new_row))
+            tracking_sheet.update_acell('A1', new_row)
             logger.info(f"Updated current row to: {new_row}")
         except Exception as e:
             logger.error(f"Error updating current row index: {str(e)}")
